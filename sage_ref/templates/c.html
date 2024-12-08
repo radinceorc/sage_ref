@@ -1,0 +1,35 @@
+
+{% block content %} 
+
+<wrapper class="block max-w-2xl mx-auto my-10 px-6">
+    <div id="chat_window" class="h-[45rem] flex flex-col bg-gray-800 rounded-2xl shadow-2xl relative p-1">
+        <div id="chat_container" class="overflow-y-auto grow">
+            <ul id="chat_messages" class="flex flex-col justify-end gap-2 p-4">
+                {% for message in chat_messages reversed %}
+                <li class="chat-message right">
+                    <span>{{ message.author }}</span>
+                    <p>{{ message.body }}</p>
+                    <span class="message-timestamp">{{ message.timestamp }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        <div class="sticky bottom-0 z-10 p-2 bg-gray-800">
+            <form id="chat_message_form" class="w-full flex items-center gap-2"
+                  hx-ext="ws"
+                  ws-connect="/ws/chatroom/{{ chatroom_name }}/"
+                  ws-send
+                  _="on htmx:wsAfterSend reset() me">
+                {% csrf_token %}
+                <input type="text" name="g" placeholder="Type your message..." 
+                       class="flex-grow p-2 rounded-lg border border-gray-600 bg-gray-700 text-white placeholder-gray-400 outline-none focus:border-blue-500"
+                       required>
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg px-4 py-2 transition">Send</button>
+            </form>
+        </div>
+    </div>
+</wrapper>
+<script src="https://unpkg.com/htmx.org"></script>
+<script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
+
+{% endblock %}

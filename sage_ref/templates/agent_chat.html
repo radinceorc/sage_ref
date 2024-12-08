@@ -1,0 +1,229 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Chat</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        /* Chat Button Style */
+        .chat-btn {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: #0d6efd;
+            color: #fff;
+            border: none;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            cursor: pointer;
+            z-index: 1000;
+        }
+
+        /* Chat Popup Style */
+        .chat-popup {
+            position: fixed;
+            bottom: 90px;
+            right: 20px;
+            width: 400px;
+            max-height: 600px;
+            background-color: #fff;
+            border-radius: 15px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            display: none;
+            flex-direction: column;
+            z-index: 1000;
+        }
+
+        /* Header Styling */
+        .chat-popup-header {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 15px 15px 0 0;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chat-popup-header .agent-info {
+            display: flex;
+            align-items: center;
+        }
+
+        .chat-popup-header .agent-avatar {
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            margin-right: 10px;
+            background-color: #f1f1f1;
+        }
+
+        .agent-status {
+            font-size: 14px;
+            color: #888;
+        }
+
+        .chat-popup-body {
+            padding: 10px;
+            overflow-y: auto;
+            flex: 1;
+            max-height: 400px; /* Limit the height of the chat body */
+        }
+
+        .chat-popup-footer {
+            padding: 10px;
+            border-top: 1px solid #ddd;
+            background-color: #f8f9fa;
+        }
+
+        .message {
+            margin-bottom: 10px;
+        }
+
+        .message.agent {
+            text-align: left;
+        }
+
+        .message.agent .bubble {
+            display: inline-block;
+            background-color: #f1f1f1;
+            padding: 10px;
+            border-radius: 10px;
+            max-width: 75%;
+            color: black;
+        }
+
+        .message.user {
+            text-align: right;
+        }
+
+        .message.user .bubble {
+            display: inline-block;
+            background-color: #0d6efd;
+            padding: 10px;
+            border-radius: 10px;
+            max-width: 75%;
+            color: white;
+        }
+
+        .chat-popup-footer input {
+            flex: 1;
+        }
+
+        .file-upload-btn {
+            margin-left: 5px;
+        }
+
+        /* Add styles for time and agent status */
+        .message .timestamp {
+            font-size: 12px;
+            color: #888;
+            display: block;
+            margin-top: 5px;
+        }
+
+        .timestamp .username {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <!-- Chat Button -->
+    <button class="chat-btn" onclick="toggleChat()">
+        💬
+    </button>
+
+    <!-- Chat Popup -->
+    <div class="chat-popup" id="chatPopup">
+        <!-- Header -->
+        <div class="chat-popup-header">
+            <div class="agent-info">
+                    <img id="image" src="{% if client_avatar %}{{ client_avatar }}{% else %}https://mrwallpaper.com/images/hd/customer-colorful-letters-mjjt2zx4dr73x9jw.jpg{% endif %}" alt="Client Avatar" class="agent-avatar">
+                <div>
+                    <h6 id="agentn"class="mb-0">{{ username }}</h6>
+                    {% if status == 'online' %}
+                        <div id="online" class="agent-status text-success">Online</div>
+                        {% else %}
+                        <div id="online" class="agent-status text-danger">Offline</div>
+                        {% endif %}
+                    <div id="online-icon"></div>
+                </div>
+            </div>
+            <button class="btn-close" aria-label="Close" onclick="toggleChat()"></button>
+        </div>
+
+        <!-- Chat Body -->
+        <div class="chat-popup-body" id="chatBody">
+            {% for message in messages %}
+                <div class="message {% if message.author == user or message.session_key %}user{% else %}agent{% endif %}">
+                <div class="bubble">{{ message.message }}</div>
+                <span class="timestamp">{{ message.timestamp|date:"H:i" }} - <span class="username">{{ message.author.username }}</span></span>
+                </div>
+            {% endfor %}
+        </div>
+
+        <!-- Footer -->
+        <div class="chat-popup-footer">
+            <form hx-ext="ws"
+                  ws-connect="/ws/chatroom/{{ chatroom_name }}/"
+                  ws-send
+                  _="on htmx:wsAfterSend clearInput() scrollToBottom()"
+                  enctype="multipart/form-data" id="chatForm" class="d-flex align-items-center">
+                {% csrf_token %}
+                <input type="text" name="message" id="messageInput" class="form-control" placeholder="Write a message..." required>
+                <label class="btn btn-outline-secondary file-upload-btn">
+                    +
+                    <input type="file" name="file" style="display: none;">
+                </label>
+                <button type="submit" class="btn btn-primary">Send</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Toggle Chat Popup Visibility
+        function toggleChat() {
+            const chatPopup = document.getElementById('chatPopup');
+            chatPopup.style.display = chatPopup.style.display === 'flex' ? 'none' : 'flex';
+            scrollToBottom();
+        }
+
+        // Auto-scroll to the bottom of the chat
+        function scrollToBottom() {
+            const chatBody = document.getElementById('chatBody');
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+
+        // Attach event listener to the send button
+        document.addEventListener('DOMContentLoaded', () => {
+            scrollToBottom(); // Ensure the chat is scrolled to the bottom on page load
+
+            // Attach the event listener to the send button
+            const sendButton = document.querySelector('#chatForm button[type="submit"]');
+            const messageInput = document.getElementById('messageInput');
+
+            sendButton.addEventListener('click', function (e) {
+                setTimeout(() => {
+                    messageInput.value = ''; // Clear the input field after submission
+                }, 10); // Small delay to ensure the message is sent first
+            });
+        });
+
+        // Listen for incoming messages and scroll to the bottom
+        document.addEventListener('htmx:wsAfterSend', function (event) {
+            scrollToBottom(); // After each message, scroll to the bottom
+        });
+    </script>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/htmx.org"></script>
+    <script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
+</body>
+</html>

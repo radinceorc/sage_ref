@@ -1,0 +1,126 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agent Chat Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .chat-room {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 10px;
+            background-color: #f8f9fa;
+        }
+        .chat-room h5 {
+            margin: 0;
+        }
+        .message {
+            margin-bottom: 10px;
+        }
+        .message.agent {
+            text-align: left;
+        }
+        .message.user {
+            text-align: right;
+        }
+        .room-link {
+            text-decoration: none;
+            color: #0d6efd;
+        }
+        .room-link:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1>Agent Chat Panel</h1>
+
+        <!-- List of Open Chat Rooms -->
+        <div class="list-group">
+            <h3>Open Chat Rooms</h3>
+            {% for room in rooms %}
+                <a href="{% url 'chatroom' room.name %}" class="chat-room list-group-item room-link">
+                    <h5>{{ room.name }}</h5>
+                    <p><strong>Users in this room:</strong></p>
+                    <ul>
+                        {% for user in room.users_online.all %}
+                            <li>{{ user.username }} - {{ user.profile.status }}</li>
+                        {% endfor %}
+                    </ul>
+                </a>
+            {% endfor %}
+        </div>
+
+        <!-- Current Chat Room (if any) -->
+        {% if chatroom %}
+            <div class="chat-room mt-4">
+                <h3>Chat Room: {{ chatroom.name }}</h3>
+
+                <!-- Messages in the Room -->
+                <div class="chat-popup-body" id="chatBody">
+                    {% for message in messages %}
+                        <div class="message {% if message.author == user %}user{% else %}agent{% endif %}">
+                            <div class="bubble">{{ message.message }}</div>
+                            <small>{{ message.timestamp|date:"H:i" }} - {{ message.author.username }}</small>
+                        </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Footer (Message input) -->
+                <div class="chat-popup-footer">
+                    <form hx-ext="ws"
+                          ws-connect="/ws/chatroom/{{ chatroom.name }}/"
+                          ws-send
+                          _="on htmx:wsAfterSend clearInput() scrollToBottom()"
+                          enctype="multipart/form-data" id="chatForm" class="d-flex align-items-center">
+                        {% csrf_token %}
+                        <input type="text" name="message" id="messageInput" class="form-control" placeholder="Write a message..." required>
+                        <label class="btn btn-outline-secondary file-upload-btn">
+                            +
+                            <input type="file" name="file" style="display: none;">
+                        </label>
+                        <button type="submit" class="btn btn-primary">Send</button>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    <script>
+        // Toggle Chat Popup Visibility
+        function toggleChat() {
+            const chatPopup = document.getElementById('chatPopup');
+            chatPopup.style.display = chatPopup.style.display === 'flex' ? 'none' : 'flex';
+            scrollToBottom();
+        }
+
+        // Auto-scroll to the bottom of the chat
+        function scrollToBottom() {
+            const chatBody = document.getElementById('chatBody');
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+
+        // Attach event listener to the send button
+        document.addEventListener('DOMContentLoaded', () => {
+            scrollToBottom();
+
+            // Attach the event listener to the send button
+            const sendButton = document.querySelector('#chatForm button[type="submit"]');
+            const messageInput = document.getElementById('messageInput');
+
+            sendButton.addEventListener('click', function (e) {
+                setTimeout(() => {
+                    messageInput.value = ''; // Clear the input field after submission
+                }, 10); // Small delay to ensure the message is sent first
+            });
+        });
+    </script>
+
+    <script src="https://unpkg.com/htmx.org"></script>
+    <script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>
+</body>
+</html>

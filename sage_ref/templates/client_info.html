@@ -1,0 +1,9 @@
+{% load static %}
+<img id="image" src="{% if client_avatar %}{{ client_avatar }}{% else %}https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQe82Q8Ywa_xrLYbcGF2D1gjfpu6YXhlrxb_A&s{% endif %}" alt="Client Avatar" class="agent-avatar">
+<h6 id="agentn" class="mb-0">{{ identifier }}</h6>
+<small id="jr" class="text-muted"></small>
+{% if client_status == 'online' %}
+    <div id="online-icon2" class="agent-status text-success">Online</div>
+{% else %}
+    <div id="online-icon2" class="agent-status text-danger">Offline</div>
+{% endif %}
