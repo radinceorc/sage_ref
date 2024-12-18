@@ -150,7 +150,11 @@
                     <img id="image2" src="{% if client_avatar %}{{ client_avatar }}{% else %}https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcT6VW40aCsFxAKSlRrYLr8doBpkoakhPPbfUdiikp9VyRCvxLrpHH3NOFObjFgtiqnseiU&usqp=CAU{% endif %}" alt="Client Avatar" class="agent-avatar">
                     <div>
                         <h6 id="agentnm"class="mb-0">{{ username }}</h6>
-                        <div id="online-icon2"></div>
+                        {% if client_status == 'online' %}
+                            <div id="online-icon2" class="agent-status text-success">Online</div>
+                        {% elif client_status == 'offline' %}
+                            <div id="online-icon2" class="agent-status text-danger">Offline</div>
+                        {% endif %}
                     </div>
                 {% else %}
                     <img id="image"src="{% if agent.avatar.url %}{{ agent.avatar.url }}{% else %}https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQe82Q8Ywa_xrLYbcGF2D1gjfpu6YXhlrxb_A&s{% endif %}" alt="Agent Avatar" class="agent-avatar">
@@ -180,6 +184,8 @@
                 <span class="timestamp">{{ message.timestamp|date:"H:i" }} - <span class="username">{{ message.author.username }}</span></span>
                 </div>
             {% endfor %}
+            <div id="typingStatus" class="text-muted" style="font-style: italic;"></div>
+
         </div>
 
         <!-- Footer -->
@@ -235,7 +241,55 @@
         });
         
     </script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+        const messageInput = document.getElementById('messageInput');
+        const typingStatus = document.getElementById('typingStatus');
+        let typingTimeout;
+        const chatroom_name = "{{ chatroom_name }}";
 
+        // Initialize WebSocket
+        const chatSocket = new WebSocket(`ws://${window.location.host}/ws/chatroom/${chatroom_name}/`);
+
+        chatSocket.onopen = () => console.log("WebSocket connected.");
+        chatSocket.onerror = (error) => console.error("WebSocket error:", error);
+
+        // Listen for input events to send typing notifications
+        messageInput.addEventListener('input', () => {
+            // Send typing notification
+            chatSocket.send(JSON.stringify({ 'typing': true }));
+
+            // Clear previous timeout and set a new one to stop typing after 2 seconds
+            clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(() => {
+                chatSocket.send(JSON.stringify({ 'typing': false }));
+            }, 2000);
+        });
+
+        // Handle incoming WebSocket messages
+        chatSocket.onmessage = function (e) {
+            try {
+                const data = JSON.parse(e.data);
+
+                // Handle typing notifications
+                if (data.type === 'typing') {
+                    typingStatus.textContent = data.typing
+                        ? `${data.username} is typing...`
+                        : '';
+                }
+
+                // Handle other message types (like chat messages) here
+            } catch (error) {
+                console.error("Error parsing WebSocket message:", error);
+            }
+        };
+
+        chatSocket.onclose = () => {
+            console.log("WebSocket closed.");
+            typingStatus.textContent = ""; // Clear typing status on disconnect
+        };
+    });
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/htmx.org"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>

@@ -4,7 +4,9 @@ from django.db.models import Count
 from sage_ref.models import Room, ChatMessage,Agent
 from django.contrib.auth.decorators import login_required
 from django.utils.decorators import method_decorator
+from django.contrib.auth import get_user_model
 
+User = get_user_model()
 @method_decorator(login_required, name='dispatch')
 class AgentChatPanelView(TemplateView):
     template_name = 'agent.html'
@@ -31,6 +33,13 @@ class AgentChatRoomView(TemplateView):
         print(is_agent)
         context['is_agent'] = is_agent
         context['chatroom'] = room
+        context['chatroom_name'] = room.name
         context['messages'] = ChatMessage.objects.filter(room=room).order_by('timestamp')[:50]
+        messages = list(ChatMessage.objects.filter(room=room).order_by('timestamp')[:50])
+        first_message = messages[0]
+        username = getattr(
+            first_message.author, User.USERNAME_FIELD, "Anonymous"
+        ) if first_message.author else "Anonymous"
         context['rooms'] = Room.objects.all()
+        context['username'] = username
         return context
