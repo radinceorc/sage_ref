@@ -184,7 +184,7 @@
                 <span class="timestamp">{{ message.timestamp|date:"H:i" }} - <span class="username">{{ message.author.username }}</span></span>
                 </div>
             {% endfor %}
-            <div id="typingStatus" class="text-muted" style="font-style: italic;">tfhfgth</div>
+            <div id="typingStatus" class="text-muted" style="font-style: italic;"></div>
 
         </div>
 
@@ -193,11 +193,10 @@
             <form hx-ext="ws"
                   ws-connect="/ws/chatroom/{{ chatroom_name }}/"
                   ws-send
-                  _="on htmx:wsAfterSend clearInput() scrollToBottom() testScript() initializeMainChatScript()"
+                  _="on htmx:wsAfterSend clearInput() scrollToBottom()"
                   enctype="multipart/form-data" id="chatForm" class="d-flex align-items-center">
                 {% csrf_token %}
-                
-                <input type="text" name="message" id="messageInput" class="form-control" placeholder="Write a message..." hx-on="input:initializeMainChatScript()" required>
+                <input type="text" name="message" id="messageInput" class="form-control" placeholder="Write a message..." required>
                 <label class="btn btn-outline-secondary file-upload-btn">
                     +
                     <input type="file" name="file" style="display: none;">
@@ -243,157 +242,75 @@
         
     </script>
     <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const messageInput = document.getElementById('messageInput');
+            const typingStatus = document.getElementById('typingStatus');
+            let typingTimeout = null;
+            let chatSocket = null;
+            const chatroom_name = "{{ chatroom_name }}";
+
+            // Initialize WebSocket connection
+            function initializeWebSocket() {
+                if (chatSocket && chatSocket.readyState !== WebSocket.CLOSED) {
+                    return; // WebSocket already initialized and not closed
+                }
+
+                chatSocket = new WebSocket(`ws://${window.location.host}/ws/chatroom/${chatroom_name}/`);
+
+                chatSocket.onopen = () => {
+                    console.log("WebSocket connected.");
+                };
+
+                chatSocket.onerror = (error) => {
+                    console.error("WebSocket error:", error);
+                };
+
+                // Handle incoming WebSocket messages
+                chatSocket.onmessage = function (e) {
+                    try {
+                        const data = JSON.parse(e.data);
+
+                        // Handle "typing" notifications only
+                        if (data.type === 'typing') {
+                            typingStatus.textContent = data.typing
+                                ? `${data.username} is typing...`
+                                : '';
+                        }
+                    } catch (error) {
+                        console.warn("Non-JSON WebSocket message received, ignoring:", e.data);
+                    }
+                };
+
+                chatSocket.onclose = () => {
+                    console.log("WebSocket closed.");
+                    typingStatus.textContent = ""; // Clear typing status on disconnect
+                };
+            }
+
+            // Add event listener to input field
+            messageInput.addEventListener('input', () => {
+                initializeWebSocket(); // Ensure WebSocket is initialized
+
+                // Send "typing" notification
+                if (chatSocket.readyState === WebSocket.OPEN) {
+                    chatSocket.send(JSON.stringify({ 'typing': true }));
+                }
+
+                // Reset timeout for stopping typing
+                if (typingTimeout) clearTimeout(typingTimeout);
+
+                // Stop "typing" notification after 2 seconds of no input
+                typingTimeout = setTimeout(() => {
+                    if (chatSocket.readyState === WebSocket.OPEN) {
+                        chatSocket.send(JSON.stringify({ 'typing': false }));
+
+                        // Close the WebSocket to prevent further messages
+                        chatSocket.close();
+                    }
+                }, 2000);
+            });
+        });
     </script>
-    <script>
-    function initializeMainChatScript() {
-    console.log("Initializing main chat script...");
-
-    const messageInput = document.getElementById("messageInput");
-    let chatSocket = null;
-    let isTyping = false; // Tracks if the "typing" state is already sent
-    let isWebSocketInitialized = false; // Prevent multiple WebSocket initializations
-    const chatroom_name = "{{ chatroom_name }}";
-
-    // Initialize WebSocket connection
-    function initializeWebSocket() {
-        if (isWebSocketInitialized) {
-            console.log("WebSocket already initialized.");
-            return;
-        }
-
-        chatSocket = new WebSocket(`ws://${window.location.host}/ws/chatroom/${chatroom_name}/`);
-        isWebSocketInitialized = true;
-
-        chatSocket.onopen = () => {
-            console.log("WebSocket connected.");
-        };
-
-        chatSocket.onerror = (error) => {
-            console.error("WebSocket error:", error);
-        };
-
-        chatSocket.onclose = () => {
-            console.warn("WebSocket closed. Attempting to reconnect...");
-            isWebSocketInitialized = false;
-            setTimeout(initializeWebSocket, 2000); // Reconnect after 2 seconds
-        };
-    }
-
-    // Send typing notification through WebSocket
-    function sendTypingNotification(typing) {
-        if (chatSocket && chatSocket.readyState === WebSocket.OPEN) {
-            chatSocket.send(JSON.stringify({ type: "user_typing", typing }));
-            console.log(`Typing event sent: ${typing}`);
-        } else {
-            console.warn("Cannot send typing event: WebSocket is not open.");
-        }
-    }
-
-    // Handle input changes
-    function handleInputChange() {
-        const isInputNonEmpty = messageInput.value.trim() !== "";
-
-        if (isInputNonEmpty && !isTyping) {
-            // Send "user is typing" only once when input becomes non-empty
-            sendTypingNotification(true);
-            isTyping = true;
-        } else if (!isInputNonEmpty && isTyping) {
-            // Send "user stopped typing" only once when input is cleared
-            sendTypingNotification(false);
-            isTyping = false;
-        }
-    }
-
-    // Ensure event listener is attached once
-    if (!messageInput.hasAttribute("data-listener-attached")) {
-        messageInput.addEventListener("input", handleInputChange);
-        messageInput.setAttribute("data-listener-attached", "true");
-    }
-
-    // Initialize WebSocket on load
-    initializeWebSocket();
-    }
-
-    document.addEventListener('htmx:wsAfterSend', () => {
-        console.log("HTMX wsAfterSend triggered. Running test script...");
-        testScript();
-    });
-
-    // Run the test script on page load
-    document.addEventListener('DOMContentLoaded', () => {
-        console.log("DOMContentLoaded: Running test script.");
-        testScript();
-    });
-    </script>
-    <script>
-    function initializeMainChatScript() {
-    console.log("Initializing main chat script...");
-
-    const messageInput = document.getElementById("messageInput");
-    const chatroomName = "{{ chatroom_name }}";
-    let isTyping = false;
-
-    // Ensure the WebSocket connects only once
-    if (!window.chatSocketInstance) {
-        // Initialize WebSocket connection
-        window.chatSocketInstance = new WebSocket(`ws://${window.location.host}/ws/chatroom/${chatroomName}/`);
-
-        window.chatSocketInstance.onopen = () => {
-            console.log("WebSocket connected.");
-        };
-
-        window.chatSocketInstance.onerror = (error) => {
-            console.error("WebSocket error:", error);
-        };
-
-        window.chatSocketInstance.onclose = () => {
-            console.warn("WebSocket closed. Attempting to reconnect...");
-            window.chatSocketInstance = null; // Clear the global reference
-            setTimeout(initializeMainChatScript, 2000); // Reconnect after 2 seconds
-        };
-    } else {
-        console.log("WebSocket already initialized.");
-    }
-
-    // Send typing notification through WebSocket
-    function sendTypingNotification(typing) {
-        if (window.chatSocketInstance && window.chatSocketInstance.readyState === WebSocket.OPEN) {
-            window.chatSocketInstance.send(JSON.stringify({ type: "user_typing", typing }));
-            console.log(`Typing event sent: ${typing}`);
-        } else {
-            console.warn("Cannot send typing event: WebSocket is not open.");
-        }
-    }
-
-    // Handle input changes
-    function handleInputChange() {
-        const isInputNonEmpty = messageInput.value.trim() !== "";
-
-        if (isInputNonEmpty && !isTyping) {
-            // Send "user is typing" only once when input becomes non-empty
-            sendTypingNotification(true);
-            isTyping = true;
-        } else if (!isInputNonEmpty && isTyping) {
-            // Send "user stopped typing" only once when input is cleared
-            sendTypingNotification(false);
-            isTyping = false;
-        }
-    }
-
-    // Ensure the event listener is attached once
-    if (!messageInput.hasAttribute("data-listener-attached")) {
-        messageInput.addEventListener("input", handleInputChange);
-        messageInput.setAttribute("data-listener-attached", "true");
-    }
-    }
-
-    
-    document.addEventListener('htmx:wsAfterSend', () => {
-        console.log("HTMX wsAfterSend triggered. Running cos script...");
-        initializeMainChatScript();
-    });
-    </script>
-    
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/htmx.org"></script>
     <script src="https://unpkg.com/htmx.org/dist/ext/ws.js"></script>

@@ -1,7 +1,7 @@
 import json
-from channels.generic.websocket import AsyncWebsocketConsumer
+from channels.generic.websocket import WebsocketConsumer
+from asgiref.sync import async_to_sync
 from django.template.loader import render_to_string
-from asgiref.sync import sync_to_async
 from django.shortcuts import get_object_or_404
 from sage_ref.models.room import Room
 from sage_ref.models.chat import ChatMessage
@@ -13,73 +13,69 @@ User = get_user_model()
 online_clients = {}
 
 
-class ChatConsumer(AsyncWebsocketConsumer):
-    async def connect(self):
+class ChatConsumer(WebsocketConsumer):
+    def connect(self):
         global online_clients
         self.chatroom_name = self.scope['url_route']['kwargs']['chatroom_name']
         print(f"Chat room name: {self.chatroom_name}")
-        # breakpoint()
-        # Use async ORM operations
-        self.room = await sync_to_async(get_object_or_404)(Room, name=self.chatroom_name)
+        self.room = get_object_or_404(Room, name=self.chatroom_name)
         self.room_group_name = f'chat_{self.chatroom_name}'
         self.user = self.scope['user']
 
-        # Handle session key and online status
+        # Identify the user or session for tracking online status
         if not self.user.is_authenticated:
             self.session_key = self.scope['session'].session_key
             identifier = self.session_key
-            await self.set_client_status("online", is_authenticated=False)
+            self.set_client_status("online", is_authenticated=False)
         else:
             self.session_key = None
             identifier = self.user.username
-            await self.set_client_status("online", is_authenticated=True)
-        
+            self.set_client_status("online", is_authenticated=True)
+
         online_clients[identifier] = "online"
 
-        # Add to group
-        await self.channel_layer.group_add(
+        async_to_sync(self.channel_layer.group_add)(
             self.room_group_name,
             self.channel_name
         )
 
         # Mark agent online if applicable
-        user_has_agent = await sync_to_async(lambda user: hasattr(user, 'agent'))(self.user)
-        if self.user.is_authenticated and user_has_agent:
+        if self.user.is_authenticated and hasattr(self.user, 'agent'):
             self.room.agent.status = AgentStatus.ONLINE
-            await sync_to_async(self.room.agent.save)()
-            await self.send_agent_status_to_clients()
+            self.room.agent.save()
+            self.send_agent_status_to_clients()
 
-        await self.accept()
+        self.accept()
 
-    async def disconnect(self, close_code):
+    def disconnect(self, close_code):
         global online_clients
         identifier = self.user.username if self.user.is_authenticated else self.session_key
         online_clients[identifier] = "offline"
 
-        # Remove from group
-        await self.channel_layer.group_discard(
+        async_to_sync(self.channel_layer.group_discard)(
             self.room_group_name,
             self.channel_name
         )
 
         if not self.user.is_authenticated:
-            await self.set_client_status("offline", is_authenticated=False)
+            self.set_client_status("offline", is_authenticated=False)
         elif self.user.is_authenticated:
-            await self.set_client_status("offline", is_authenticated=True)
+            self.set_client_status("offline", is_authenticated=True)
             if hasattr(self.user, 'agent'):
                 self.room.agent.status = AgentStatus.OFFLINE
-                await sync_to_async(self.room.agent.save)()
-                await self.send_agent_status_to_clients(True)
+                self.room.agent.save()
+                self.send_agent_status_to_clients(True)
 
-    async def receive(self, text_data):
+    def receive(self, text_data):
         print(f"Message received: {text_data}")
         text_data_json = json.loads(text_data)
-        message = text_data_json.get('message', '')
-        typing = text_data_json.get('typing', False)
 
-        # Handle typing notification
-        if typing:
-            await self.channel_layer.group_send(
+        # Separate handling for typing and actual message
+        typing = text_data_json.get('typing', None)
+        message = text_data_json.get('message', '')
+
+        if typing is not None:
+            async_to_sync(self.channel_layer.group_send)(
                 self.room_group_name,
                 {
                     'type': 'user_typing',
@@ -87,24 +83,23 @@ class ChatConsumer(AsyncWebsocketConsumer):
                     'typing': typing,
                 }
             )
-            return
+            return 
 
-        # Handle message
         if message:
             if self.user.is_authenticated:
-                chat_message = await sync_to_async(ChatMessage.objects.create)(
+                chat_message = ChatMessage.objects.create(
                     room=self.room,
                     author=self.user,
                     message=message
                 )
             else:
-                chat_message = await sync_to_async(ChatMessage.objects.create)(
+                chat_message = ChatMessage.objects.create(
                     room=self.room,
                     session_key=self.session_key,
                     message=message
                 )
 
-            await self.channel_layer.group_send(
+            async_to_sync(self.channel_layer.group_send)(
                 self.room_group_name,
                 {
                     'type': 'chat_message',
@@ -114,49 +109,36 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 }
             )
 
-    async def chat_message(self, event):
+    def chat_message(self, event):
         global online_clients
-        messages = await sync_to_async(list)(
-                ChatMessage.objects.filter(room=self.room).order_by('timestamp')[:50]
-        )
+        messages = list(ChatMessage.objects.filter(room=self.room).order_by('timestamp')[:50])
         first_message = messages[0]
-
-        if first_message.author_id:
-            author_username = await sync_to_async(
-                lambda: User.objects.filter(id=first_message.author_id).values_list(User.USERNAME_FIELD, flat=True).first()
-            )()
-        else:
-            author_username = "Anonymous"
-
-        agent_username = await sync_to_async(lambda: str(self.room.agent.user.username) if self.room.agent else None)()
-
-            # Determine if the user is an agent
-        is_agent = agent_username == await sync_to_async(lambda: str(self.scope['user'].username))()
-
+        username = getattr(first_message.author, User.USERNAME_FIELD, "Anonymous") if first_message.author else "Anonymous"
+        is_agent = str(self.room.agent) == str(self.scope['user'].username)
         context = {
-                'chatroom_name': self.chatroom_name,
-                'messages': messages,
-                'user': self.scope['user'],
-                'agent': self.room.agent,
-                'room': self.room,
-                'username': author_username,
-                'is_agent': is_agent,
-                'client_status': online_clients.get(author_username),
-            }
+            'chatroom_name': self.chatroom_name,
+            'messages': messages,
+            'user': self.scope['user'],
+            'agent': self.room.agent,
+            'room': self.room,
+            'username': username,
+            'is_agent': is_agent,
+            'client_status': online_clients.get(first_message.author.username),
+        }
         html_message = render_to_string("chat.html", context)
-        await self.send(text_data=html_message)
+        self.send(text_data=html_message)
 
-
-    async def user_typing(self, event):
+    def user_typing(self, event):
         print(f"Typing event: {event}")
-        await self.send(text_data=json.dumps({
-            'type': 'typing',
-            'username': event['username'],
-            'typing': event['typing'],
-        }))
+        typing = False
+        if event['typing'] == True:
+            typing = True
+        html_message = render_to_string("typing.html", {'typing': typing})
+        self.send(text_data=html_message)
 
-    async def send_agent_status_to_clients(self, disconnect=False):
-        await self.channel_layer.group_send(
+    def send_agent_status_to_clients(self, disconnect=False):
+        # Broadcast agent status to all clients
+        async_to_sync(self.channel_layer.group_send)(
             self.room_group_name,
             {
                 'type': 'agent_status_update',
@@ -164,21 +146,18 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
-    async def agent_status_update(self, event):
-        self.room = await sync_to_async(get_object_or_404)(Room, name=self.chatroom_name)
+    def agent_status_update(self, event):
+        # Broadcast agent status update
+        self.room = get_object_or_404(Room, name=self.chatroom_name)
         self.room.agent.status = AgentStatus.OFFLINE if event['disconnect'] else AgentStatus.ONLINE
-        await sync_to_async(self.room.agent.save)()
+        self.room.agent.save()
         context = {'agent': self.room.agent}
         html_message = render_to_string("agent_info.html", context)
-        await self.send(text_data=html_message)
+        self.send(text_data=html_message)
 
-    async def set_client_status(self, status, is_authenticated):
-        if is_authenticated:
-            identifier = self.user.username
-        else:
-            identifier = self.session_key
-
-        await self.channel_layer.group_send(
+    def set_client_status(self, status, is_authenticated):
+        identifier = self.user.username if is_authenticated else self.session_key
+        async_to_sync(self.channel_layer.group_send)(
             self.room_group_name,
             {
                 'type': 'client_status_update',
@@ -188,15 +167,12 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
-    async def client_status_update(self, event):
-        status = event['status']
-        identifier = event['identifier']
-        is_authenticated = event['is_authenticated']
-
+    def client_status_update(self, event):
+        # Broadcast client status update
         context = {
-            'client_status': status,
-            'identifier': identifier,
-            'is_authenticated': is_authenticated,
+            'client_status': event['status'],
+            'identifier': event['identifier'],
+            'is_authenticated': event['is_authenticated'],
         }
         html_message = render_to_string("client_info.html", context)
-        await self.send(text_data=html_message)
+        self.send(text_data=html_message)
