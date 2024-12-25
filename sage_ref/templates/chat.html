@@ -155,6 +155,7 @@
                         {% elif client_status == 'offline' %}
                             <div id="online-icon2" class="agent-status text-danger">Offline</div>
                         {% endif %}
+                        <div id="type2"></div>
                     </div>
                 {% else %}
                     <img id="image"src="{% if agent.avatar.url %}{{ agent.avatar.url }}{% else %}https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQe82Q8Ywa_xrLYbcGF2D1gjfpu6YXhlrxb_A&s{% endif %}" alt="Agent Avatar" class="agent-avatar">
@@ -171,6 +172,7 @@
                         {% endif %}
                         <div id="online-icon"></div>
                     </div>
+                    <div id="type3"></div>
                 {% endif %}
             </div>
             <button class="btn-close" aria-label="Close" onclick="toggleChat()"></button>
@@ -184,8 +186,6 @@
                 <span class="timestamp">{{ message.timestamp|date:"H:i" }} - <span class="username">{{ message.author.username }}</span></span>
                 </div>
             {% endfor %}
-            <div id="typingStatus" class="text-muted" style="font-style: italic;">tfhfgth</div>
-
         </div>
 
         <!-- Footer -->

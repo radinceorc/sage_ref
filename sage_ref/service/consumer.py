@@ -5,6 +5,7 @@ from django.template.loader import render_to_string
 from django.shortcuts import get_object_or_404
 from sage_ref.models.room import Room
 from sage_ref.models.chat import ChatMessage
+from sage_ref.models.agent import  Agent
 from sage_ref.helpers.enums import AgentStatus
 from django.contrib.auth import get_user_model
 
@@ -75,14 +76,27 @@ class ChatConsumer(WebsocketConsumer):
         message = text_data_json.get('message', '')
 
         if typing is not None:
-            async_to_sync(self.channel_layer.group_send)(
-                self.room_group_name,
-                {
-                    'type': 'user_typing',
-                    'username': self.user.username if self.user.is_authenticated else "Anonymous",
-                    'typing': typing,
-                }
-            )
+            agent = Agent.objects.filter(user=self.user)
+            html_message = None
+            if self.user.is_authenticated and agent:
+                async_to_sync(self.channel_layer.group_send)(
+                    self.room_group_name,
+                    {
+                        'type': 'agent_typing',
+                        'username': self.user.username if self.user.is_authenticated else "Anonymous",
+                        'typing': typing,
+                    }
+                )
+            else:
+                async_to_sync(self.channel_layer.group_send)(
+                    self.room_group_name,
+                    {
+                        'type': 'user_typing',
+                        'username': self.user.username if self.user.is_authenticated else "Anonymous",
+                        'typing': typing,
+                    }
+                )
+
             return 
 
         if message:
@@ -133,7 +147,16 @@ class ChatConsumer(WebsocketConsumer):
         typing = False
         if event['typing'] == True:
             typing = True
-        html_message = render_to_string("typing.html", {'typing': typing})
+        html_message = render_to_string("type_agent.html", {'typing': typing})
+        self.send(text_data=html_message)
+    
+    def agent_typing(self, event):
+        print(f"Typing event: {event}")
+        typing = False
+        if event['typing'] == True:
+            typing = True
+        print("Agent is typing")
+        html_message = render_to_string("typing2.html", {'typing': typing})
         self.send(text_data=html_message)
 
     def send_agent_status_to_clients(self, disconnect=False):
